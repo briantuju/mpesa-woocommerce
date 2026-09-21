@@ -18,10 +18,12 @@ function mpesa_gateway_init(): void {
 	}
 
 	class WC_Gateway_Mpesa extends WC_Payment_Gateway {
+		const TD = 'wc-mpesa';
+
 		public function __construct() {
 			$this->id                 = 'mpesa';
-			$this->method_title       = __( 'M-Pesa');
-			$this->method_description = __( 'Let customers pay to your store using M-Pesa');
+			$this->method_title       = __( 'M-Pesa', self::TD );
+			$this->method_description = __( 'Let customers pay to your store using M-Pesa', self::TD );
 			$this->has_fields         = true;
 
 			$this->init_form_fields();
@@ -41,55 +43,55 @@ function mpesa_gateway_init(): void {
 				'enabled'         => array(
 					'title'   => __( 'Enable/Disable', 'woocommerce' ),
 					'type'    => 'checkbox',
-					'label'   => __( 'Enable M-Pesa payments'),
+					'label'   => __( 'Enable M-Pesa payments', self::TD ),
 					'default' => 'yes',
 				),
 				'title'           => array(
 					'title'       => __( 'Title', 'woocommerce' ),
 					'type'        => 'text',
 					'description' => __( 'This controls the title which the user sees during checkout.', 'woocommerce' ),
-					'default'     => __( 'M-Pesa'),
+					'default'     => __( 'M-Pesa', self::TD ),
 					'desc_tip'    => true,
 				),
 				'description'     => array(
 					'title'   => __( 'Customer Message', 'woocommerce' ),
 					'type'    => 'textarea',
-					'default' => __( 'Enter your M-Pesa phone number to pay'),
+					'default' => __( 'Enter your M-Pesa phone number to pay', self::TD ),
 				),
 				'environment'     => array(
-					'title'    => __( 'Environment'),
+					'title'    => __( 'Environment', self::TD ),
 					'type'     => 'select',
 					'options'  => array(
-						'sandbox' => __( 'Sandbox (test)'),
-						'live'    => __( 'Live (production)'),
+						'sandbox' => __( 'Sandbox (test)', self::TD ),
+						'live'    => __( 'Live (production)', self::TD ),
 					),
 					'default'  => 'sandbox',
 					'desc_tip' => true,
 				),
 				'consumer_key'    => array(
-					'title'    => __( 'Consumer Key'),
+					'title'    => __( 'Consumer Key', self::TD ),
 					'type'     => 'text',
 					'desc_tip' => true,
 				),
 				'consumer_secret' => array(
-					'title' => __( 'Consumer Secret'),
+					'title' => __( 'Consumer Secret', self::TD ),
 					'type'  => 'password',
 				),
 				'paybill'         => array(
-					'title'       => __( 'PayBill / Till Number'),
+					'title'       => __( 'PayBill / Till Number', self::TD ),
 					'type'        => 'text',
-					'description' => __( 'Business shortcode, e.g. 174379'),
+					'description' => __( 'Business shortcode, e.g. 174379', self::TD ),
 				),
 				'passkey'         => array(
-					'title'       => __( 'Lipa Na M-Pesa Online Pass Key'),
+					'title'       => __( 'Lipa Na M-Pesa Online Pass Key', self::TD ),
 					'type'        => 'password',
-					'description' => __( 'Used to build the STK push request password'),
+					'description' => __( 'Used to build the STK push request password', self::TD ),
 				),
 				'callback_url'    => array(
-					'title'       => __( 'Callback URL'),
+					'title'       => __( 'Callback URL', self::TD ),
 					'type'        => 'text',
 					'default'     => home_url( '/wc-api/wc_gateway_mpesa' ),
-					'description' => __( 'Where Daraja sends the STK push result'),
+					'description' => __( 'Where Daraja sends the STK push result', self::TD ),
 				),
 			);
 		}
