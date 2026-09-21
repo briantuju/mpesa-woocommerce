@@ -329,6 +329,9 @@ function mpesa_handle_callback(): void {
 	if ( 0 !== $result_code ) {
 		$message = isset( $stk['ResultDesc'] ) ? $stk['ResultDesc']
 			: __( 'M-Pesa payment failed', MPESA_TD );
+
+		do_action( 'mpesa_payment_failed', $order, $message );
+
 		$order->update_status( 'failed', 'M-Pesa: ' . $message );
 
 		exit;
@@ -364,8 +367,11 @@ function mpesa_handle_callback(): void {
 		if ( ! $receipt
 		     || $amount !== (int) round( $order->get_total() )
 		) {
-			$order->update_status( 'failed',
-				'M-Pesa callback rejected: receipt or amount missing/mismatched' );
+			$message = 'M-Pesa callback rejected: receipt or amount missing/mismatched';
+
+			do_action( 'mpesa_payment_failed', $order, $message );
+
+			$order->update_status( 'failed', $message );
 
 			exit;
 		}
@@ -376,6 +382,8 @@ function mpesa_handle_callback(): void {
 			$receipt ) );
 		$order->payment_complete( $receipt );
 		$order->save();
+
+		do_action( 'mpesa_payment_completed', $order, $receipt );
 	}
 
 	exit;
