@@ -383,13 +383,23 @@ function mpesa_handle_callback(): void {
 
 add_action( 'template_redirect', 'mpesa_pending_page' );
 
+add_filter(
+	'query_vars',
+	function ( $vars ) {
+		$vars[] = 'mpesa_pay';
+
+		return $vars;
+	}
+);
+
 function mpesa_pending_page(): void {
-	if ( ! isset( $_GET['mpesa_pay'] ) ) {
+	if ( ! get_query_var( 'mpesa_pay' ) ) {
 		return;
 	}
 
 	$order_id  = isset( $_GET['order_id'] ) ? (int) $_GET['order_id'] : 0;
-	$order_key = isset( $_GET['order_key'] ) ? sanitize_text_field( wp_unslash( $_GET['order_key'] ) ) : '';
+	$order_key = isset( $_GET['order_key'] )
+		? sanitize_text_field( wp_unslash( $_GET['order_key'] ) ) : '';
 
 	$order = $order_id ? wc_get_order( $order_id ) : null;
 
@@ -407,12 +417,16 @@ function mpesa_pending_page(): void {
 
 	nocache_headers();
 
-	if ( in_array( $order->get_status(), array( 'failed', 'cancelled' ), true ) ) {
+	if ( in_array( $order->get_status(), array( 'failed', 'cancelled' ),
+		true )
+	) {
 		get_header();
 
 		echo '<div class="mpesa-payment-result">';
-		echo '<p>' . esc_html__( 'The M-Pesa payment was not completed.', MPESA_TD ) . '</p>';
-		echo '<p><a href="' . esc_url( $order->get_checkout_payment_url() ) . '">'
+		echo '<p>' . esc_html__( 'The M-Pesa payment was not completed.',
+				MPESA_TD ) . '</p>';
+		echo '<p><a href="' . esc_url( $order->get_checkout_payment_url() )
+		     . '">'
 		     . esc_html__( 'Retry payment', MPESA_TD ) . '</a></p>';
 		echo '</div>';
 
@@ -421,35 +435,41 @@ function mpesa_pending_page(): void {
 		exit;
 	}
 
-	wp_enqueue_script( 'mpesa-poll', plugins_url( 'assets/mpesa-poll.js', __FILE__ ), array(), '0.1.0', true );
+	wp_enqueue_script( 'mpesa-poll',
+		plugins_url( 'assets/mpesa-poll.js', __FILE__ ), array(), '0.1.0',
+		true );
 
 	wp_localize_script(
 		'mpesa-poll',
 		'MPesaPoll',
 		array(
-			'statusId'   => 'mpesa-status',
-			'statusUrl'  => add_query_arg(
+			'statusId'      => 'mpesa-status',
+			'statusUrl'     => add_query_arg(
 				array(
 					'order_id'  => $order->get_id(),
 					'order_key' => $order->get_order_key(),
 				),
 				rest_url( 'mpesa/v1/status' )
 			),
-			'interval'   => 3000,
-			'timeout'    => 90000,
-			'successUrl' => $order->get_checkout_order_received_url(),
-			'retryUrl'   => $order->get_checkout_payment_url(),
-			'retryLabel' => __( 'Retry payment', MPESA_TD ),
-			'failedLabel' => __( 'Payment failed. You can try again.', MPESA_TD ),
-			'timedOutLabel' => __( 'No payment confirmed yet. Check your phone.', MPESA_TD ),
+			'interval'      => 3000,
+			'timeout'       => 90000,
+			'successUrl'    => $order->get_checkout_order_received_url(),
+			'retryUrl'      => $order->get_checkout_payment_url(),
+			'retryLabel'    => __( 'Retry payment', MPESA_TD ),
+			'failedLabel'   => __( 'Payment failed. You can try again.',
+				MPESA_TD ),
+			'timedOutLabel' => __( 'No payment confirmed yet. Check your phone.',
+				MPESA_TD ),
 		)
 	);
 
 	get_header();
 
 	echo '<div class="mpesa-payment-pending">';
-	echo '<p>' . esc_html__( 'Confirm payment of ', MPESA_TD ) . wc_price( $order->get_total() )
-	     . esc_html__( ' by entering your M-Pesa PIN on your phone.', MPESA_TD ) . '</p>';
+	echo '<p>' . esc_html__( 'Confirm payment of ', MPESA_TD )
+	     . wc_price( $order->get_total() )
+	     . esc_html__( ' by entering your M-Pesa PIN on your phone.', MPESA_TD )
+	     . '</p>';
 	echo '<div class="mpesa-spinner"></div>';
 	echo '<div id="mpesa-status"></div>';
 	echo '</div>';
@@ -477,7 +497,8 @@ function mpesa_register_rest_route(): void {
 	);
 }
 
-function mpesa_order_status_endpoint( WP_REST_Request $request ) {
+function mpesa_order_status_endpoint( WP_REST_Request $request
+): WP_Error|WP_REST_Response|WP_HTTP_Response {
 	$order_key = sanitize_text_field( wp_unslash( $request['order_key'] ) );
 	$order     = wc_get_order( (int) $request['order_id'] );
 
@@ -497,7 +518,9 @@ function mpesa_order_status_endpoint( WP_REST_Request $request ) {
 		);
 	}
 
-	if ( in_array( $order->get_status(), array( 'failed', 'cancelled' ), true ) ) {
+	if ( in_array( $order->get_status(), array( 'failed', 'cancelled' ),
+		true )
+	) {
 		return rest_ensure_response( array( 'status' => 'failed' ) );
 	}
 
