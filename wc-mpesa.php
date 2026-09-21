@@ -125,7 +125,37 @@ function mpesa_gateway_init(): void {
 					'default'     => defined( 'MPESA_CALLBACK_URL' ) && MPESA_CALLBACK_URL ? MPESA_CALLBACK_URL : home_url( '/wc-api/wc_gateway_mpesa' ),
 					'description' => __( 'Where Daraja sends the STK push result', MPESA_TD ),
 				),
+);
+		}
+
+		public function payment_fields(): void {
+			woocommerce_form_field(
+				'mpesa_phone',
+				array(
+					'type'        => 'tel',
+					'label'       => __( 'M-Pesa phone number', MPESA_TD ),
+					'placeholder' => '07XXXXXXXX or 2547XXXXXXXX',
+					'required'    => true,
+				)
 			);
+		}
+
+		public function validate_fields(): bool {
+			$phone = isset( $_POST['mpesa_phone'] ) ? sanitize_text_field( wp_unslash( $_POST['mpesa_phone'] ) ) : '';
+
+			$phone = preg_replace( '/[^0-9]/', '', $phone );
+			$phone = ltrim( $phone, '0' );
+			$phone = '254' . $phone;
+
+			if ( ! preg_match( '/^2547\d{8}$/', $phone ) ) {
+				wc_add_notice( __( 'Please enter a valid M-Pesa number, e.g. 0712345678', MPESA_TD ), 'error' );
+
+				return false;
+			}
+
+			$_POST['mpesa_phone'] = $phone;
+
+			return true;
 		}
 	}
 
