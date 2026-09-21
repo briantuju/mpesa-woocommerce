@@ -262,3 +262,66 @@ function mpesa_gateway_init(): void {
 		}
 	);
 }
+
+add_action( 'woocommerce_api_wc_gateway_mpesa', 'mpesa_handle_callback' );
+
+function mpesa_handle_callback(): void {
+	status_header( 200 );
+
+	$body = json_decode( file_get_contents( 'php://input' ), true );
+
+	if ( ! is_array( $body ) || ! isset( $body['Body']['stkCallback'] ) ) {
+		exit;
+	}
+
+	$stk = $body['Body']['stkCallback'];
+
+	if ( ! isset( $stk['CheckoutRequestID'] ) ) {
+		exit;
+	}
+
+	$orders = wc_get_orders(
+		array(
+			'limit'      => 1,
+			'meta_key'   => '_mpesa_checkout_request_id',
+			'meta_value' => $stk['CheckoutRequestID'],
+		)
+	);
+
+	if ( empty( $orders ) ) {
+		exit;
+	}
+
+	$order       = $orders[0];
+	$result_code = isset( $stk['ResultCode'] ) ? (int) $stk['ResultCode'] : -1;
+
+	if ( 0 !== $result_code ) {
+		$message = isset( $stk['ResultDesc'] ) ? $stk['ResultDesc'] : __( 'M-Pesa payment failed', MPESA_TD );
+		$order->update_status( 'failed', 'M-Pesa: ' . $message );
+
+		exit;
+	}
+
+	if ( ! $order->is_paid() ) {
+		$receipt  = '';
+		$datetime = '';
+
+		foreach ( (array) ( $stk['CallbackMetadata']['Item'] ?? array() ) as $item ) {
+			if ( 'MpesaReceiptNumber' === $item['Name'] ) {
+				$receipt = $item['Value'];
+			}
+
+			if ( 'TransactionDate' === $item['Name'] ) {
+				$datetime = $item['Value'];
+			}
+		}
+
+		$order->update_meta_data( '_mpesa_receipt_number', $receipt );
+		$order->update_meta_data( '_mpesa_transaction_date', $datetime );
+		$order->add_order_note( sprintf( 'M-Pesa payment received (Receipt: %s)', $receipt ) );
+		$order->payment_complete( $receipt );
+		$order->save();
+	}
+
+	exit;
+}
