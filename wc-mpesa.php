@@ -290,6 +290,8 @@ function mpesa_gateway_init(): void {
 			return $methods;
 		}
 	);
+
+	mpesa_schedule_cleanup_cron();
 }
 
 add_action( 'woocommerce_api_wc_gateway_mpesa', 'mpesa_handle_callback' );
@@ -533,4 +535,46 @@ function mpesa_order_status_endpoint( WP_REST_Request $request
 	}
 
 	return rest_ensure_response( array( 'status' => 'pending' ) );
+}
+
+function mpesa_schedule_cleanup_cron(): void {
+	if ( ! wp_next_scheduled( 'mpesa_cleanup_pending_orders' ) ) {
+		wp_schedule_event( time() + HOUR_IN_SECONDS, 'hourly',
+			'mpesa_cleanup_pending_orders' );
+	}
+}
+
+add_action( 'mpesa_cleanup_pending_orders', 'mpesa_cleanup_pending_orders' );
+
+function mpesa_cleanup_pending_orders(): void {
+	$timeout = (int) apply_filters( 'mpesa_pending_order_timeout',
+		30 * MINUTE_IN_SECONDS );
+
+	$orders = wc_get_orders(
+		array(
+			'limit'      => 100,
+			'type'       => 'shop_order',
+			'status'     => array( 'wc-on-hold' ),
+			'meta_query' => array(
+				array(
+					'key'     => '_mpesa_checkout_request_id',
+					'compare' => 'EXISTS',
+				),
+			),
+		)
+	);
+
+	foreach ( $orders as $order ) {
+		$modified = $order->get_date_modified();
+
+		if ( ! $modified || $modified->getTimestamp() > time() - $timeout ) {
+			continue;
+		}
+
+		$message = 'Order expired: M-Pesa payment not completed in time';
+
+		do_action( 'mpesa_payment_failed', $order, $message );
+
+		$order->update_status( 'failed', 'M-Pesa: ' . $message );
+	}
 }
