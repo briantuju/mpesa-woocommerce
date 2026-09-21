@@ -8,6 +8,8 @@
  * Requires Plugins: woocommerce
  */
 
+use JetBrains\PhpStorm\NoReturn;
+
 defined( 'ABSPATH' ) || exit;
 
 define( 'MPESA_TD', 'wc-mpesa' );
@@ -189,6 +191,26 @@ function mpesa_gateway_init(): void {
 			$order->update_meta_data( '_mpesa_phone', $phone );
 			$order->save();
 
+			if ( ! $this->get_option( 'consumer_key' )
+			     || ! $this->get_option( 'consumer_secret' )
+			     || ! $this->get_option( 'paybill' )
+			     || ! $this->get_option( 'passkey' )
+			) {
+				wc_add_notice( __( 'M-Pesa is not fully configured. Please check the payment settings.',
+					MPESA_TD ), 'error' );
+
+				return array( 'result' => 'failure' );
+			}
+
+			$callback_url = $this->get_option( 'callback_url' );
+
+			if ( 'https' !== wp_parse_url( $callback_url, PHP_URL_SCHEME ) ) {
+				wc_add_notice( __( 'M-Pesa requires an HTTPS callback URL.',
+					MPESA_TD ), 'error' );
+
+				return array( 'result' => 'failure' );
+			}
+
 			$api = new MPesa_API(
 				$this->get_option( 'environment' ),
 				$this->get_option( 'consumer_key' ),
@@ -265,6 +287,7 @@ function mpesa_gateway_init(): void {
 
 add_action( 'woocommerce_api_wc_gateway_mpesa', 'mpesa_handle_callback' );
 
+#[NoReturn]
 function mpesa_handle_callback(): void {
 	status_header( 200 );
 
@@ -289,14 +312,16 @@ function mpesa_handle_callback(): void {
 	);
 
 	if ( empty( $orders ) ) {
+		// maybe do some reporting here
 		exit;
 	}
 
 	$order       = $orders[0];
-	$result_code = isset( $stk['ResultCode'] ) ? (int) $stk['ResultCode'] : -1;
+	$result_code = isset( $stk['ResultCode'] ) ? (int) $stk['ResultCode'] : - 1;
 
 	if ( 0 !== $result_code ) {
-		$message = isset( $stk['ResultDesc'] ) ? $stk['ResultDesc'] : __( 'M-Pesa payment failed', MPESA_TD );
+		$message = isset( $stk['ResultDesc'] ) ? $stk['ResultDesc']
+			: __( 'M-Pesa payment failed', MPESA_TD );
 		$order->update_status( 'failed', 'M-Pesa: ' . $message );
 
 		exit;
@@ -305,20 +330,43 @@ function mpesa_handle_callback(): void {
 	if ( ! $order->is_paid() ) {
 		$receipt  = '';
 		$datetime = '';
+		$amount   = 0;
 
-		foreach ( (array) ( $stk['CallbackMetadata']['Item'] ?? array() ) as $item ) {
-			if ( 'MpesaReceiptNumber' === $item['Name'] ) {
-				$receipt = $item['Value'];
+		foreach (
+			(array) ( $stk['CallbackMetadata']['Item'] ?? array() ) as $item
+		) {
+			if ( ! isset( $item['Name'], $item['Value'] ) ) {
+				continue;
 			}
 
-			if ( 'TransactionDate' === $item['Name'] ) {
-				$datetime = $item['Value'];
+			switch ( $item['Name'] ) {
+				case 'Amount':
+					$amount = (int) $item['Value'];
+					break;
+
+				case 'MpesaReceiptNumber':
+					$receipt = sanitize_text_field( $item['Value'] );
+					break;
+
+				case 'TransactionDate':
+					$datetime = sanitize_text_field( $item['Value'] );
+					break;
 			}
+		}
+
+		if ( ! $receipt
+		     || $amount !== (int) round( $order->get_total() )
+		) {
+			$order->update_status( 'failed',
+				'M-Pesa callback rejected: receipt or amount missing/mismatched' );
+
+			exit;
 		}
 
 		$order->update_meta_data( '_mpesa_receipt_number', $receipt );
 		$order->update_meta_data( '_mpesa_transaction_date', $datetime );
-		$order->add_order_note( sprintf( 'M-Pesa payment received (Receipt: %s)', $receipt ) );
+		$order->add_order_note( sprintf( 'M-Pesa payment received (Receipt: %s)',
+			$receipt ) );
 		$order->payment_complete( $receipt );
 		$order->save();
 	}
