@@ -270,7 +270,14 @@ function mpesa_gateway_init(): void {
 
 			return array(
 				'result'   => 'success',
-				'redirect' => $order->get_checkout_order_received_url(),
+				'redirect' => add_query_arg(
+					array(
+						'mpesa_pay' => '1',
+						'order_id'  => $order->get_id(),
+						'order_key' => $order->get_order_key(),
+					),
+					home_url( '/' )
+				),
 			);
 		}
 	}
@@ -372,4 +379,127 @@ function mpesa_handle_callback(): void {
 	}
 
 	exit;
+}
+
+add_action( 'template_redirect', 'mpesa_pending_page' );
+
+function mpesa_pending_page(): void {
+	if ( ! isset( $_GET['mpesa_pay'] ) ) {
+		return;
+	}
+
+	$order_id  = isset( $_GET['order_id'] ) ? (int) $_GET['order_id'] : 0;
+	$order_key = isset( $_GET['order_key'] ) ? sanitize_text_field( wp_unslash( $_GET['order_key'] ) ) : '';
+
+	$order = $order_id ? wc_get_order( $order_id ) : null;
+
+	if ( ! $order || ! hash_equals( $order->get_order_key(), $order_key ) ) {
+		wp_safe_redirect( home_url( '/' ) );
+
+		exit;
+	}
+
+	if ( $order->is_paid() ) {
+		wp_safe_redirect( $order->get_checkout_order_received_url() );
+
+		exit;
+	}
+
+	nocache_headers();
+
+	if ( in_array( $order->get_status(), array( 'failed', 'cancelled' ), true ) ) {
+		get_header();
+
+		echo '<div class="mpesa-payment-result">';
+		echo '<p>' . esc_html__( 'The M-Pesa payment was not completed.', MPESA_TD ) . '</p>';
+		echo '<p><a href="' . esc_url( $order->get_checkout_payment_url() ) . '">'
+		     . esc_html__( 'Retry payment', MPESA_TD ) . '</a></p>';
+		echo '</div>';
+
+		get_footer();
+
+		exit;
+	}
+
+	wp_enqueue_script( 'mpesa-poll', plugins_url( 'assets/mpesa-poll.js', __FILE__ ), array(), '0.1.0', true );
+
+	wp_localize_script(
+		'mpesa-poll',
+		'MPesaPoll',
+		array(
+			'statusId'   => 'mpesa-status',
+			'statusUrl'  => add_query_arg(
+				array(
+					'order_id'  => $order->get_id(),
+					'order_key' => $order->get_order_key(),
+				),
+				rest_url( 'mpesa/v1/status' )
+			),
+			'interval'   => 3000,
+			'timeout'    => 90000,
+			'successUrl' => $order->get_checkout_order_received_url(),
+			'retryUrl'   => $order->get_checkout_payment_url(),
+			'retryLabel' => __( 'Retry payment', MPESA_TD ),
+			'failedLabel' => __( 'Payment failed. You can try again.', MPESA_TD ),
+			'timedOutLabel' => __( 'No payment confirmed yet. Check your phone.', MPESA_TD ),
+		)
+	);
+
+	get_header();
+
+	echo '<div class="mpesa-payment-pending">';
+	echo '<p>' . esc_html__( 'Confirm payment of ', MPESA_TD ) . wc_price( $order->get_total() )
+	     . esc_html__( ' by entering your M-Pesa PIN on your phone.', MPESA_TD ) . '</p>';
+	echo '<div class="mpesa-spinner"></div>';
+	echo '<div id="mpesa-status"></div>';
+	echo '</div>';
+
+	get_footer();
+
+	exit;
+}
+
+add_action( 'rest_api_init', 'mpesa_register_rest_route' );
+
+function mpesa_register_rest_route(): void {
+	register_rest_route(
+		'mpesa/v1',
+		'/status',
+		array(
+			'methods'             => 'GET',
+			'callback'            => 'mpesa_order_status_endpoint',
+			'permission_callback' => '__return_true',
+			'args'                => array(
+				'order_id'  => array( 'required' => true, 'type' => 'integer' ),
+				'order_key' => array( 'required' => true, 'type' => 'string' ),
+			),
+		)
+	);
+}
+
+function mpesa_order_status_endpoint( WP_REST_Request $request ) {
+	$order_key = sanitize_text_field( wp_unslash( $request['order_key'] ) );
+	$order     = wc_get_order( (int) $request['order_id'] );
+
+	if ( ! $order || ! hash_equals( $order->get_order_key(), $order_key ) ) {
+		return new WP_REST_Response(
+			array( 'status' => 'invalid' ),
+			404
+		);
+	}
+
+	if ( $order->is_paid() ) {
+		return rest_ensure_response(
+			array(
+				'status'  => 'paid',
+				'receipt' => $order->get_meta( '_mpesa_receipt_number' ),
+			)
+		);
+	}
+
+	if ( in_array( $order->get_status(), array( 'failed', 'cancelled' ), true ) ) {
+		return rest_ensure_response( array( 'status' => 'failed' ) );
+	}
+
+	return rest_ensure_response( array( 'status' => 'pending' ) );
 }
