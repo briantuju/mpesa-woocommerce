@@ -12,9 +12,37 @@ defined( 'ABSPATH' ) || exit;
 
 define( 'MPESA_TD', 'wc-mpesa' );
 
+function mpesa_load_env(): void {
+	$file = dirname( __FILE__ ) . '/.env';
+
+	if ( ! file_exists( $file ) ) {
+		return;
+	}
+
+	$lines = file( $file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES );
+
+	foreach ( $lines as $line ) {
+		$line = trim( $line );
+
+		if ( '' === $line || str_starts_with( $line, '#' ) ) {
+			continue;
+		}
+
+		$parts = explode( '=', $line, 2 );
+		$key   = trim( $parts[0] );
+		$value = isset( $parts[1] ) ? trim( trim( $parts[1] ), '"' ) : '';
+
+		if ( str_starts_with( $key, 'MPESA_' ) && ! defined( $key ) ) {
+			define( $key, $value );
+		}
+	}
+}
+
 add_action( 'plugins_loaded', 'mpesa_gateway_init', 0 );
 
 function mpesa_gateway_init(): void {
+	mpesa_load_env();
+
 	if ( ! class_exists( 'WC_Payment_Gateway' ) ) {
 		return;
 	}
@@ -65,32 +93,36 @@ function mpesa_gateway_init(): void {
 						'sandbox' => __( 'Sandbox (test)', MPESA_TD ),
 						'live'    => __( 'Live (production)', MPESA_TD ),
 					),
-					'default'  => 'sandbox',
+					'default'  => defined( 'MPESA_ENVIRONMENT' ) && MPESA_ENVIRONMENT ? MPESA_ENVIRONMENT : 'sandbox',
 					'desc_tip' => true,
 				),
 				'consumer_key'    => array(
 					'title'    => __( 'Consumer Key', MPESA_TD ),
 					'type'     => 'text',
+					'default'  => defined( 'MPESA_CONSUMER_KEY' ) ? MPESA_CONSUMER_KEY : '',
 					'desc_tip' => true,
 				),
 				'consumer_secret' => array(
-					'title' => __( 'Consumer Secret', MPESA_TD ),
-					'type'  => 'password',
+					'title'   => __( 'Consumer Secret', MPESA_TD ),
+					'type'    => 'password',
+					'default' => defined( 'MPESA_CONSUMER_SECRET' ) ? MPESA_CONSUMER_SECRET : '',
 				),
 				'paybill'         => array(
 					'title'       => __( 'PayBill / Till Number', MPESA_TD ),
 					'type'        => 'text',
+					'default'     => defined( 'MPESA_SHORTCODE' ) ? MPESA_SHORTCODE : '',
 					'description' => __( 'Business shortcode, e.g. 174379', MPESA_TD ),
 				),
 				'passkey'         => array(
 					'title'       => __( 'Lipa Na M-Pesa Online Pass Key', MPESA_TD ),
 					'type'        => 'password',
+					'default'     => defined( 'MPESA_PASSKEY' ) ? MPESA_PASSKEY : '',
 					'description' => __( 'Used to build the STK push request password', MPESA_TD ),
 				),
 				'callback_url'    => array(
 					'title'       => __( 'Callback URL', MPESA_TD ),
 					'type'        => 'text',
-					'default'     => home_url( '/wc-api/wc_gateway_mpesa' ),
+					'default'     => defined( 'MPESA_CALLBACK_URL' ) && MPESA_CALLBACK_URL ? MPESA_CALLBACK_URL : home_url( '/wc-api/wc_gateway_mpesa' ),
 					'description' => __( 'Where Daraja sends the STK push result', MPESA_TD ),
 				),
 			);
