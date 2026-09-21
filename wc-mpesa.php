@@ -12,6 +12,8 @@ defined( 'ABSPATH' ) || exit;
 
 define( 'MPESA_TD', 'wc-mpesa' );
 
+require_once dirname( __FILE__ ) . '/class-mpesa-api.php';
+
 function mpesa_load_env(): void {
 	$file = dirname( __FILE__ ) . '/.env';
 
