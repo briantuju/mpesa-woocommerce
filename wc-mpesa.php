@@ -14,6 +14,14 @@ defined( 'ABSPATH' ) || exit;
 
 define( 'MPESA_TD', 'wc-mpesa' );
 
+add_action(
+	'init',
+	function () {
+		load_plugin_textdomain( MPESA_TD, false,
+			dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+	}
+);
+
 require_once dirname( __FILE__ ) . '/class-mpesa-api.php';
 
 function mpesa_load_env(): void {
@@ -43,6 +51,20 @@ function mpesa_load_env(): void {
 }
 
 add_action( 'plugins_loaded', 'mpesa_gateway_init', 0 );
+
+function mpesa_log( string $message ): void {
+	if ( ! function_exists( 'wc_get_logger' ) ) {
+		return;
+	}
+
+	$settings = get_option( 'woocommerce_mpesa_settings', array() );
+
+	if ( empty( $settings['debug'] ) || 'yes' !== $settings['debug'] ) {
+		return;
+	}
+
+	wc_get_logger()->info( $message, array( 'source' => 'wc-mpesa' ) );
+}
 
 function mpesa_gateway_init(): void {
 	mpesa_load_env();
@@ -145,6 +167,15 @@ function mpesa_gateway_init(): void {
 					'description' => __( 'Where Daraja sends the STK push result',
 						MPESA_TD ),
 				),
+				'debug'           => array(
+					'title'       => __( 'Debug log', MPESA_TD ),
+					'type'        => 'checkbox',
+					'label'       => __( 'Record M-Pesa requests and results in the WooCommerce log',
+						MPESA_TD ),
+					'default'     => 'no',
+					'description' => __( 'Leave off in production unless troubleshooting',
+						MPESA_TD ),
+				),
 			);
 		}
 
@@ -181,6 +212,18 @@ function mpesa_gateway_init(): void {
 			return true;
 		}
 
+		public function get_supported_currencies(): array {
+			return array( 'KES' );
+		}
+
+		public function is_available(): bool {
+			if ( 'KES' !== get_woocommerce_currency() ) {
+				return false;
+			}
+
+			return parent::is_available();
+		}
+
 		public function process_payment( $order_id ): array {
 			$order = wc_get_order( $order_id );
 
@@ -196,6 +239,9 @@ function mpesa_gateway_init(): void {
 			     || ! $this->get_option( 'paybill' )
 			     || ! $this->get_option( 'passkey' )
 			) {
+				mpesa_log( sprintf( 'Order #%s: payment blocked - M-Pesa settings incomplete',
+					$order->get_id() ) );
+
 				wc_add_notice( __( 'M-Pesa is not fully configured. Please check the payment settings.',
 					MPESA_TD ), 'error' );
 
@@ -205,6 +251,9 @@ function mpesa_gateway_init(): void {
 			$callback_url = $this->get_option( 'callback_url' );
 
 			if ( 'https' !== wp_parse_url( $callback_url, PHP_URL_SCHEME ) ) {
+				mpesa_log( sprintf( 'Order #%s: payment blocked - callback URL is not HTTPS (%s)',
+					$order->get_id(), $callback_url ) );
+
 				wc_add_notice( __( 'M-Pesa requires an HTTPS callback URL.',
 					MPESA_TD ), 'error' );
 
@@ -220,6 +269,9 @@ function mpesa_gateway_init(): void {
 			$access_token = $api->get_access_token();
 
 			if ( is_wp_error( $access_token ) ) {
+				mpesa_log( sprintf( 'Order #%s: OAuth failed - %s',
+					$order->get_id(), $access_token->get_error_message() ) );
+
 				wc_add_notice( __( 'Payment error:', MPESA_TD ) . ' '
 				               . $access_token->get_error_message(), 'error' );
 
@@ -241,6 +293,9 @@ function mpesa_gateway_init(): void {
 			);
 
 			if ( is_wp_error( $result ) ) {
+				mpesa_log( sprintf( 'Order #%s: STK push failed - %s',
+					$order->get_id(), $result->get_error_message() ) );
+
 				wc_add_notice( __( 'Payment error:', MPESA_TD ) . ' '
 				               . $result->get_error_message(), 'error' );
 
@@ -254,6 +309,9 @@ function mpesa_gateway_init(): void {
 					? $result['ResponseDescription']
 					: __( 'Unknown M-Pesa error', MPESA_TD );
 
+				mpesa_log( sprintf( 'Order #%s: STK push rejected (%s) - %s',
+					$order->get_id(), $result['ResponseCode'] ?? '?', $message ) );
+
 				wc_add_notice( __( 'Payment error:', MPESA_TD ) . ' '
 				               . $message, 'error' );
 
@@ -265,6 +323,9 @@ function mpesa_gateway_init(): void {
 			$order->update_status( 'on-hold',
 				__( 'Awaiting M-Pesa STK push confirmation', MPESA_TD ) );
 			$order->save();
+
+			mpesa_log( sprintf( 'Order #%s: STK push sent to %s (CheckoutRequestID %s)',
+				$order->get_id(), $phone, $result['CheckoutRequestID'] ) );
 
 			WC()->cart->empty_cart();
 
@@ -303,12 +364,16 @@ function mpesa_handle_callback(): void {
 	$body = json_decode( file_get_contents( 'php://input' ), true );
 
 	if ( ! is_array( $body ) || ! isset( $body['Body']['stkCallback'] ) ) {
+		mpesa_log( 'Callback: malformed body' );
+
 		exit;
 	}
 
 	$stk = $body['Body']['stkCallback'];
 
 	if ( ! isset( $stk['CheckoutRequestID'] ) ) {
+		mpesa_log( 'Callback: missing CheckoutRequestID' );
+
 		exit;
 	}
 
@@ -321,6 +386,9 @@ function mpesa_handle_callback(): void {
 	);
 
 	if ( empty( $orders ) ) {
+		mpesa_log( sprintf( 'Callback: no order found for CheckoutRequestID %s',
+			$stk['CheckoutRequestID'] ) );
+
 		// maybe do some reporting here
 		exit;
 	}
@@ -331,6 +399,9 @@ function mpesa_handle_callback(): void {
 	if ( 0 !== $result_code ) {
 		$message = isset( $stk['ResultDesc'] ) ? $stk['ResultDesc']
 			: __( 'M-Pesa payment failed', MPESA_TD );
+
+		mpesa_log( sprintf( 'Order #%s: payment declined (%s) - %s',
+			$order->get_id(), $result_code, $message ) );
 
 		do_action( 'mpesa_payment_failed', $order, $message );
 
@@ -371,6 +442,10 @@ function mpesa_handle_callback(): void {
 		) {
 			$message = 'M-Pesa callback rejected: receipt or amount missing/mismatched';
 
+			mpesa_log( sprintf( 'Order #%s: %s (amount %s, receipt %s)',
+				$order->get_id(), $message, $amount,
+				$receipt ?: '(missing)' ) );
+
 			do_action( 'mpesa_payment_failed', $order, $message );
 
 			$order->update_status( 'failed', $message );
@@ -384,6 +459,9 @@ function mpesa_handle_callback(): void {
 			$receipt ) );
 		$order->payment_complete( $receipt );
 		$order->save();
+
+		mpesa_log( sprintf( 'Order #%s: payment completed (Receipt %s, amount %s)',
+			$order->get_id(), $receipt, $amount ) );
 
 		do_action( 'mpesa_payment_completed', $order, $receipt );
 	}

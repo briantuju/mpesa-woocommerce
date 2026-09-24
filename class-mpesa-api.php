@@ -49,6 +49,9 @@ class MPesa_API {
 				? $body['error_description']
 				: wp_remote_retrieve_response_message( $response );
 
+			mpesa_log( sprintf( 'OAuth failed (HTTP %s): %s',
+				wp_remote_retrieve_response_code( $response ), $message ) );
+
 			return new WP_Error( 'mpesa_auth_failed', $message );
 		}
 
@@ -104,6 +107,9 @@ class MPesa_API {
 			$message = isset( $result['errorMessage'] )
 				? $result['errorMessage']
 				: wp_remote_retrieve_response_message( $response );
+
+			mpesa_log( sprintf( 'STK push failed (HTTP %s, ref %s): %s',
+				$code, $params['account_ref'] ?? '?', $message ) );
 
 			return new WP_Error( 'mpesa_stk_push_failed', $message );
 		}
